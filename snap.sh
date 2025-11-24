@@ -1,5 +1,5 @@
 #!/bin/bash
-set -xve
+set -e
 
 # Generate time-only filename (HHMMSS) and zero-padded hour
 timestamp=$(date +%H%M%S)

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -exv
+set -e
 
 timestamp=$(date +%H%M%S)
 filename="sp_${timestamp}.csv"
