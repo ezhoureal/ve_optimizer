@@ -1,14 +1,19 @@
 """Utilities to run the `sp_perf` runner and extract a performance score.
 
-This module computes a simple performance score by averaging the three
+This module Provide PerformanceScoreDriver that computes a performance score by averaging the three
 columns: `gpuLoad`, `hw-cpu-cycles`, and `hw-instructions` from the
 produced `sp_*.csv` file.
 """
 
 WORK_DIR = "."
-SP_SCRIPT = "./sp_perf.sh"
 DATA_DIR = "data"
 COLUMNS = ["gpuLoad", "hw-cpu-cycles", "hw-instructions"]
+
+import platform
+if platform.system() == "Windows":
+    SP_SCRIPT = ".\\sp_perf.bat"
+else:
+    SP_SCRIPT = "./sp_perf.sh"
 
 import csv
 import glob
