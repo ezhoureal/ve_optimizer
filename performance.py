@@ -7,6 +7,7 @@ produced `sp_*.csv` file.
 
 WORK_DIR = "."
 SP_SCRIPT = "./sp_perf.sh"
+DATA_DIR = "data"
 COLUMNS = ["gpuLoad", "hw-cpu-cycles", "hw-instructions"]
 
 import csv
@@ -66,7 +67,7 @@ def _run_script_and_get_column_means() -> dict:
     if proc.returncode != 0:
         raise RuntimeError(f"script {SP_SCRIPT} failed (rc={proc.returncode})\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}")
 
-    pattern = os.path.join(WORK_DIR, "sp_*.csv")
+    pattern = os.path.join(DATA_DIR, "sp_*.csv")
     matches = glob.glob(pattern)
     if not matches:
         raise FileNotFoundError(f"no files matching {pattern}")
