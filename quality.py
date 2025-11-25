@@ -1,12 +1,11 @@
-BUNDLE_NAME = "com.example.glass"
 BASE_IMAGE = "base.jpeg"
 RECORD_BATCH = "snap_glass.sh"
-SP_BATCH = "sp_perf.sh"
 
-import json
 import os
 import subprocess
 import re
+
+from config_ve import VisualEffect, send_config
 
 def get_ssim_score(filename, base_file=BASE_IMAGE):
     """
@@ -108,14 +107,6 @@ def get_detailed_ssim(filename, base_file=BASE_IMAGE):
         print(f"Error: {e}")
         return None
 
-def run_perf():
-    result = subprocess.run(
-            SP_BATCH,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-
 def get_snapshot(batch_script_path=RECORD_BATCH):
     """
     Run the screen recording batch script and capture the generated filename
@@ -181,30 +172,7 @@ def get_base_snapshot():
         print(f"Error renaming snapshot to {BASE_IMAGE}: {e}")
         return None
 
-class VEOption:
-    def __init__(self, effect_name, o, t, s):
-        self.effect_name = effect_name
-        self.o = o
-        self.t = t
-        self.s = s
-
-def config_ve(options):
-    config = {}
-    
-    for opt in options:
-        print(f"Configuring VE: o={opt.o}, t={opt.t}, s={opt.s}")
-        config[opt.effect_name] = opt.o
-    
-    # Generate JSON file
-    filename = "config.json"
-    with open(filename, 'w') as json_file:
-        json.dump(config, json_file, indent=4)
-    print(f"JSON configuration saved to {filename}")
-    result = subprocess.run("hdc file send config.json /data/app/el1/bundle/public/" + BUNDLE_NAME)
-    return config
-
-def test_config(options: list[VEOption]) -> float:
-    config_ve(options)
+def test_quality() -> float:
     filename = get_snapshot()
     
     # Get just the overall SSIM score
@@ -227,36 +195,37 @@ def test_config(options: list[VEOption]) -> float:
 
 # Example usage
 if __name__ == "__main__":
-    quality_score = test_config([
-  VEOption(effect_name="borderSizeX", o = 350, t=0, s=0),
-  VEOption(effect_name="borderSizeY", o = 250, t=0, s=0),
-  VEOption(effect_name="cornerRadius", o = 35, t=0, s=0),
-  VEOption(effect_name="blurParamsR2", o = 48, t=0, s=0),
-  VEOption(effect_name="blurParamsK", o = 4, t=0, s=0),
-  VEOption(effect_name="borderWidthPx", o = 2.9, t=0, s=0),
-  VEOption(effect_name="embossOffset", o = 1.88, t=0, s=0),
-  VEOption(effect_name="refractOutPx", o = 20, t=0, s=0),
-  VEOption(effect_name="envK", o = 0.8, t=0, s=0),
-  VEOption(effect_name="envB", o = 0, t=0, s=0),
-  VEOption(effect_name="envS", o = 0, t=0, s=0),
-  VEOption(effect_name="refractInPx", o = 15, t=0, s=0),
-  VEOption(effect_name="sdK", o = 0.9, t=0, s=0),
-  VEOption(effect_name="sdB", o = 0, t=0, s=0),
-  VEOption(effect_name="sdS", o = 1.0, t=0, s=0),
-  VEOption(effect_name="highLightDirectionX", o = 1.0, t=0, s=0),
-  VEOption(effect_name="highLightDirectionY", o = -1.0, t=0, s=0),
-  VEOption(effect_name="highLightAngleDeg", o = 45.0, t=0, s=0),
-  VEOption(effect_name="highLightFeatherDeg", o = 30.0, t=0, s=0),
-  VEOption(effect_name="highLightWidthPx", o = 2.0, t=0, s=0),
-  VEOption(effect_name="highLightFeatherPx", o = 1.0, t=0, s=0),
-  VEOption(effect_name="highLightShiftPx", o = 0.0, t=0, s=0),
-  VEOption(effect_name="hlK", o = 0.6027, t=0, s=0),
-  VEOption(effect_name="hlB", o = 160, t=0, s=0),
-  VEOption(effect_name="hlS", o = 2.0, t=0, s=0),
-  VEOption(effect_name="glassPositionX", o = 50, t=0, s=0),
-  VEOption(effect_name="glassPositionY", o = 600, t=0, s=0),
-  VEOption(effect_name="bgFactor", o = 0.9, t=0, s=0)
-                ])
+    send_config([
+        VisualEffect(effect_name="borderSizeX", o = 350, t=0, s=0),
+        VisualEffect(effect_name="borderSizeY", o = 250, t=0, s=0),
+        VisualEffect(effect_name="cornerRadius", o = 35, t=0, s=0),
+        VisualEffect(effect_name="blurParamsR2", o = 48, t=0, s=0),
+        VisualEffect(effect_name="blurParamsK", o = 4, t=0, s=0),
+        VisualEffect(effect_name="borderWidthPx", o = 2.9, t=0, s=0),
+        VisualEffect(effect_name="embossOffset", o = 1.88, t=0, s=0),
+        VisualEffect(effect_name="refractOutPx", o = 20, t=0, s=0),
+        VisualEffect(effect_name="envK", o = 0.8, t=0, s=0),
+        VisualEffect(effect_name="envB", o = 0, t=0, s=0),
+        VisualEffect(effect_name="envS", o = 0, t=0, s=0),
+        VisualEffect(effect_name="refractInPx", o = 15, t=0, s=0),
+        VisualEffect(effect_name="sdK", o = 0.9, t=0, s=0),
+        VisualEffect(effect_name="sdB", o = 0, t=0, s=0),
+        VisualEffect(effect_name="sdS", o = 1.0, t=0, s=0),
+        VisualEffect(effect_name="highLightDirectionX", o = 1.0, t=0, s=0),
+        VisualEffect(effect_name="highLightDirectionY", o = -1.0, t=0, s=0),
+        VisualEffect(effect_name="highLightAngleDeg", o = 45.0, t=0, s=0),
+        VisualEffect(effect_name="highLightFeatherDeg", o = 30.0, t=0, s=0),
+        VisualEffect(effect_name="highLightWidthPx", o = 2.0, t=0, s=0),
+        VisualEffect(effect_name="highLightFeatherPx", o = 1.0, t=0, s=0),
+        VisualEffect(effect_name="highLightShiftPx", o = 0.0, t=0, s=0),
+        VisualEffect(effect_name="hlK", o = 0.6027, t=0, s=0),
+        VisualEffect(effect_name="hlB", o = 160, t=0, s=0),
+        VisualEffect(effect_name="hlS", o = 2.0, t=0, s=0),
+        VisualEffect(effect_name="glassPositionX", o = 50, t=0, s=0),
+        VisualEffect(effect_name="glassPositionY", o = 600, t=0, s=0),
+        VisualEffect(effect_name="bgFactor", o = 0.9, t=0, s=0)
+    ])
+    quality_score = test_quality()
     
     print(f"\nOverall Visual Similarity: {quality_score * 100:.2f}%")
     print(f"Visual Loss: {(1 - quality_score) * 100:.2f}%")

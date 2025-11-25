@@ -90,7 +90,7 @@ class PerformanceScoreDriver:
 
     def __init__(
         self,
-        sample_size: int = 50,
+        init_sample_size: int = 50,
         verbose: bool = False,
         min_std: float = 1e-6,
     ) -> None:
@@ -98,9 +98,9 @@ class PerformanceScoreDriver:
 
         # Build per-column sample lists by running the script `sample_size` times
         samples_per_column: dict[str, List[float]] = {}
-        for i in range(int(sample_size)):
+        for i in range(int(init_sample_size)):
             if self.verbose:
-                print(f"baseline sample {i+1}/{sample_size}")
+                print(f"baseline sample {i+1}/{init_sample_size}")
             col_means = _run_script_and_get_column_means()
             for c, m in col_means.items():
                 if c not in samples_per_column:
@@ -149,5 +149,5 @@ class PerformanceScoreDriver:
 
 
 if __name__ == "__main__":
-    driver = PerformanceScoreDriver(sample_size=5, verbose=True)
+    driver = PerformanceScoreDriver(init_sample_size=5, verbose=True)
     print(f'loss={driver.loss()}')

@@ -1,100 +1,22 @@
-from enum import Enum
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List
 import matplotlib.pyplot as plt
-from deap import base, creator, tools, algorithms
+from deap import base, creator, tools
 import numpy as np
 import random
+from config_ve import VisualEffect, send_config, DEFAULT_EFFECTS
+from performance import PerformanceScoreDriver
+from quality import test_quality
 
-class EffectType(Enum):
-    SHADER = 0      # "shader"
-    FILTER = 1      # "shaderFilter"
-    BLENDER = 2     # "blender"
-
-class RateType(Enum):
-    Frame30 = 3     # "30"
-    Frame60 = 2  # "60"
-    Frame90 = 1   # "90"
-    Frame120 = 0    # "120"
-
-class Resolution(Enum):
-    FULL = 0    # "1"
-    DOWN2X = 1      # "0.5"
-    DOWN4X = 2      # "0.25"
-    DOWN8X = 3      # "0.125"
-
-@dataclass
-class geEffect:
-    name: str
-    isDraw: int = 1
-    frameRate: RateType = RateType.Frame120
-    resolution: Resolution = Resolution.FULL
-    effectType: EffectType = EffectType.FILTER
-    drawOptional: Dict[str, bool] = None
-
-    def __str__(self):
-        return f"{self.name}: type = {self.effectType}, isDraw = {self.isDraw}, frameRate = {self.frameRate}, resolution = {self.resolution}, option = {str(self.drawOptional)}"
-
-    def update_theta(self):
-        if self.isDraw == 0:
-            self.theta = [0]
-        else:
-            if not self.drawOptional:
-                self.theta = [1]
-            else:
-                sums = 0
-                qs = 0
-                for s in self.drawOptional.keys():
-                    sums += (self.drawOptional[s] << qs)
-                    qs += 1
-                self.theta = [1+sums]
-        self.theta.append(self.frameRate.value)
-        self.theta.append(self.resolution.value)
-    
-    def sync_theta(self):
-        # theta = [a, b, c]
-        a = self.theta[0]
-        if a == 0:
-            self.isDraw = 0
-        elif a == 1:
-            self.isDraw = 1
-        else:
-            self.isDraw = 1
-            sums = bin(int(a - 1))[2:]
-            sums = sums[::-1]
-            i = 0
-            for k in self.drawOptional.keys():
-                if i >= len(sums):
-                    self.drawOptional[k] = 0
-                else:
-                    self.drawOptional[k] = (sums[i] == '1')
-                i += 1
-        self.frameRate = RateType(self.theta[1])
-        self.resolution = Resolution(self.theta[2])
-
-    def reset_theta(self, theta):
-        oldT = self.theta
-        self.theta = theta
-        try:
-            self.sync_theta()
-            return 1
-        except:
-            self.theta = oldT
-            self.sync_theta()
-            return 0
-
-    def __post_init__(self):
-        self.update_theta()
-
-class effectChain:
+class EffectChain:
     def __init__(self):
-        self.effectTable: Dict[str, geEffect] = {}      # id --> 视效
+        self.effectTable: Dict[str, VisualEffect] = {}      # id --> 视效
         self.typeIndex: Dict[str, List[str]] = {}         # 视效名字 --> id
         # self.callGraph: Dict[str, Set[str]] = {}        # id 之间的调用关系, 现阶段先不管
         self.theta = []
+        # Initialize performance driver for real evaluation
+        self.perf_driver = PerformanceScoreDriver(init_sample_size=1, verbose=False)
 
-    def createEffect(self, eff: geEffect):
-        # 先随便写个
+    def createEffect(self, eff: VisualEffect):
         name = eff.name
         if name not in self.typeIndex.keys():
             ids = name+"0"
@@ -108,12 +30,13 @@ class effectChain:
         self.effectTable = {}
         self.typeIndex = {}
         self.theta = []
+        self.o_ranges = []
     
     def reset_theta(self, theta):
         if len(theta) == 3 * len(self.effectTable):
             i = 0
             for eff in self.effectTable.keys():
-                if self.effectTable[eff].reset_theta(theta[3*i:3*i+3]) == 0:
+                if self.effectTable[eff].update_theta(theta[3*i:3*i+3]) == 0:
                     print(f"参数 {eff} 不匹配")
                     return
                 i += 1
@@ -126,7 +49,7 @@ class effectChain:
     def genNSamples(self, N):
         self.reset()
         for i in range(N):
-            ex = geEffect("testEffect")
+            ex = VisualEffect("testEffect")
             self.createEffect(ex)
         # 每个视效对 q 的整体贡献
         self.debugQuality = np.random.randint(0, 10001, N)
@@ -139,13 +62,32 @@ class effectChain:
 
     def hdcLoss(self, theta):
         # 注意我们规定 loss 越小越好, loss = 0 表示满血视效
-        infodict = {}
+        ve_options = []
         for i, keyname in enumerate(self.effectTable.keys()):
-            self.effectTable[keyname].reset_theta(theta[3*i:3*i+3])
+            self.effectTable[keyname].update_theta(theta[3*i:3*i+3])
             q = self.effectTable[keyname]
-            infodict[keyname] = {"isDraw": q.isDraw, "frameRate": q.frameRate, "resolution": q.resolution, "option": str(q.drawOptional)}
-        # 实际应注释下一行, 将 infodict 传给执行脚本获取 cost, 并返回对应的 loss
-        return infodict
+            # Use theta[3*i] as the continuous o value (within o_range)
+            ve_options.append(q)
+        try:
+            send_config(ve_options)
+        except Exception as e:
+            print(f"Error in VE configuration: {e}")        
+        # Get quality loss via SSIM score
+        try:
+            quality_loss = 1.0 - test_quality()  # Convert similarity to loss (1 - score)
+            if quality_loss is None:
+                quality_loss = float('inf')
+        except Exception as e:
+            print(f"Error in quality evaluation: {e}")
+            quality_loss = float('inf')
+        
+        # Get performance loss via performance driver
+        try:
+            performance_loss = self.perf_driver.loss()
+        except Exception as e:
+            print(f"Error in performance evaluation: {e}")
+            performance_loss = float('inf')
+        return performance_loss, quality_loss
 
     def simpleLoss(self, theta):
         loss = 0
@@ -183,16 +125,25 @@ class effectChain:
             cost += costAll * 0.25 * (4-p)
         return cost
 
-def effectCodeGen(N):
+def effectCodeGen(chain: EffectChain) -> list[float]:
+    """Generate initial effect code with continuous o values within o_range bounds.
+    
+    Returns:
+        List of parameters: [o_0, t_0, s_0, o_1, t_1, s_1, ...]
+        where o is continuous within range, t and s are discrete (0-3)
+    """
     a = []
-    for i in range(N):
-        a.append(np.random.randint(0,2))
-        a.append(np.random.randint(0,4))
-        a.append(np.random.randint(0,4))
+    for effect in chain.effectTable.values():
+        o_min, o_max =  effect.o_range
+        # Generate continuous o value within range
+        a.append(np.random.uniform(o_min, o_max))
+        # Discrete values for frame rate and resolution
+        a.append(np.random.randint(0, 4))
+        a.append(np.random.randint(0, 4))
     return a
 
 class simpleGASolver:
-    def __init__(self, effChain, isEvaluate = False):
+    def __init__(self, effChain: EffectChain, isEvaluate = False):
         self.effChain = effChain
         self.isEvaluate = isEvaluate
         def gen_N_effCode():
@@ -200,7 +151,7 @@ class simpleGASolver:
         creator.create("FitnessMulti", base.Fitness, weights=(-1.0, -1.0)) # -1 是最小化问题
         creator.create("Individual", list, fitness=creator.FitnessMulti)   # 创建个体类
         toolbox = base.Toolbox()
-        toolbox.register("individual", tools.initIterate, creator.Individual, lambda: effectCodeGen(len(self.effChain.effectTable)))
+        toolbox.register("individual", tools.initIterate, creator.Individual, lambda: effectCodeGen(self.effChain))
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
         toolbox.register("evaluate", self.evaluate)
@@ -211,13 +162,18 @@ class simpleGASolver:
         self.toolbox = toolbox
     
     def mut0(self, individual, indpb):
+        """Mutate individual respecting o_range bounds for continuous parameters."""
         for i in range(len(self.effChain.effectTable.keys())):
+            # Mutate o (continuous, within range)
             if random.random() < indpb:
-                individual[i*3] = np.random.randint(0,2)
+                o_min, o_max = self.effChain.o_ranges[i]
+                individual[i*3] = np.random.uniform(o_min, o_max)
+            # Mutate t (discrete: 0-3 for frame rate)
             if random.random() < indpb:
-                individual[i*3+1] = np.random.randint(0,4)
+                individual[i*3+1] = np.random.randint(0, 4)
+            # Mutate s (discrete: 0-3 for resolution)
             if random.random() < indpb:
-                individual[i*3+2] = np.random.randint(0,4)
+                individual[i*3+2] = np.random.randint(0, 4)
         return individual,
 
     def run(self, n=100, iterations=50, CXPB=0.7, MUTPB=0.2):
@@ -257,17 +213,10 @@ class simpleGASolver:
         return pareto_front, population
 
     def evaluate(self, effectCode):
-        return self.evaluate_cost(effectCode), self.evaluate_quality(effectCode)
-
-    def evaluate_cost(self, effectCode):
-        return self.effChain.simpleCost(effectCode)
-
-    def evaluate_quality(self, effectCode):
         self.evaluateTime += 1
         if self.isEvaluate:
             return self.effChain.hdcLoss(effectCode)
-        else:
-            return self.effChain.simpleLoss(effectCode)
+        return self.effChain.simpleCost(effectCode), self.effChain.simpleLoss(effectCode)
 
     def plot_2D_PF(self, pareto_front, title="Pareto-Front"):
         if isinstance(pareto_front, tools.ParetoFront):
@@ -313,15 +262,16 @@ class simpleGASolver:
 
 if __name__ == "__main__":
     # Test1. 随机创建 10 个效果，随机生成模拟数据并画图
-    a = effectChain()
-    a.genNSamples(10)
-    sol = simpleGASolver(a)
+    # a = effectChain()
+    # a.genNSamples(10)
+    # sol = simpleGASolver(a)
 
     # Test2. 接入真实的评估机制
-    # a = effectChain()
-    # a.genNSamples(3)
+    a = EffectChain()
+    for effect in DEFAULT_EFFECTS:
+        a.createEffect(effect)
     # 请在 hdcLoss 函数里对接脚本进行评估, loss 越小越好
-    # sol = simpleGASolver(a, evaluate=True)
+    sol = simpleGASolver(a, isEvaluate=True)
 
     pf, pop = sol.run(n = 20, iterations = 50, CXPB=0.7, MUTPB=0.2)
     sol.plot_2D_PF(pf)
