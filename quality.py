@@ -1,11 +1,12 @@
 BASE_IMAGE = "base.jpeg"
-RECORD_BATCH = "snap_glass.sh"
+DATA_DIR = "data/"
+RECORD_BATCH = "./snap.sh"
 
 import os
 import subprocess
 import re
 
-from config_ve import VisualEffect, send_config
+from config_ve import DEFAULT_EFFECTS, send_config
 
 def get_ssim_score(filename, base_file=BASE_IMAGE):
     """
@@ -13,7 +14,7 @@ def get_ssim_score(filename, base_file=BASE_IMAGE):
     
     Args:
         filename (str): Path to the video file to compare
-        base_file (str): Path to the base video file (default: "base.mp4")
+        base_file (str): Path to the base video file (default: "base.jpeg")
     
     Returns:
         float: SSIM score (0.0 to 1.0) or None if error
@@ -126,7 +127,6 @@ def get_snapshot(batch_script_path=RECORD_BATCH):
             check=True
         )
         
-        print('after record.bat')
         # Combine stdout and stderr (batch scripts often output to stderr)
         output = result.stdout + result.stderr
         # Look for the filename pattern in the output
@@ -134,7 +134,7 @@ def get_snapshot(batch_script_path=RECORD_BATCH):
         match = re.search(filename_pattern, output)
         
         if match:
-            filename = match.group(1)
+            filename = os.path.join(DATA_DIR, match.group(1))
             print(f"Generated filename: {filename}")
             
             # Check if file was actually downloaded
@@ -174,7 +174,7 @@ def get_base_snapshot():
 
 def test_quality() -> float:
     filename = get_snapshot()
-    
+
     # Get just the overall SSIM score
     ssim_score = get_ssim_score(filename)
     if ssim_score is not None:
@@ -192,39 +192,12 @@ def test_quality() -> float:
             print(f"  {component}: {score:.6f}")
         
         return detailed_scores.get('All', 0)
+    return 0.0
 
 # Example usage
 if __name__ == "__main__":
-    send_config([
-        VisualEffect(effect_name="borderSizeX", o = 350, t=0, s=0),
-        VisualEffect(effect_name="borderSizeY", o = 250, t=0, s=0),
-        VisualEffect(effect_name="cornerRadius", o = 35, t=0, s=0),
-        VisualEffect(effect_name="blurParamsR2", o = 48, t=0, s=0),
-        VisualEffect(effect_name="blurParamsK", o = 4, t=0, s=0),
-        VisualEffect(effect_name="borderWidthPx", o = 2.9, t=0, s=0),
-        VisualEffect(effect_name="embossOffset", o = 1.88, t=0, s=0),
-        VisualEffect(effect_name="refractOutPx", o = 20, t=0, s=0),
-        VisualEffect(effect_name="envK", o = 0.8, t=0, s=0),
-        VisualEffect(effect_name="envB", o = 0, t=0, s=0),
-        VisualEffect(effect_name="envS", o = 0, t=0, s=0),
-        VisualEffect(effect_name="refractInPx", o = 15, t=0, s=0),
-        VisualEffect(effect_name="sdK", o = 0.9, t=0, s=0),
-        VisualEffect(effect_name="sdB", o = 0, t=0, s=0),
-        VisualEffect(effect_name="sdS", o = 1.0, t=0, s=0),
-        VisualEffect(effect_name="highLightDirectionX", o = 1.0, t=0, s=0),
-        VisualEffect(effect_name="highLightDirectionY", o = -1.0, t=0, s=0),
-        VisualEffect(effect_name="highLightAngleDeg", o = 45.0, t=0, s=0),
-        VisualEffect(effect_name="highLightFeatherDeg", o = 30.0, t=0, s=0),
-        VisualEffect(effect_name="highLightWidthPx", o = 2.0, t=0, s=0),
-        VisualEffect(effect_name="highLightFeatherPx", o = 1.0, t=0, s=0),
-        VisualEffect(effect_name="highLightShiftPx", o = 0.0, t=0, s=0),
-        VisualEffect(effect_name="hlK", o = 0.6027, t=0, s=0),
-        VisualEffect(effect_name="hlB", o = 160, t=0, s=0),
-        VisualEffect(effect_name="hlS", o = 2.0, t=0, s=0),
-        VisualEffect(effect_name="glassPositionX", o = 50, t=0, s=0),
-        VisualEffect(effect_name="glassPositionY", o = 600, t=0, s=0),
-        VisualEffect(effect_name="bgFactor", o = 0.9, t=0, s=0)
-    ])
+    send_config(DEFAULT_EFFECTS)
+    get_base_snapshot()
     quality_score = test_quality()
     
     print(f"\nOverall Visual Similarity: {quality_score * 100:.2f}%")

@@ -12,7 +12,8 @@ hdc shell aa start -b com.example.glass -a EntryAbility
 sleep 1
 hdc shell snapshot_display -f /data/local/tmp/0.jpeg
 
-hdc file recv /data/local/tmp/0.jpeg "$filename"
+mkdir -p data
+hdc file recv /data/local/tmp/0.jpeg "data/$filename"
 hdc shell aa force-stop com.example.glass
 
 exit 0
