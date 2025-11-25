@@ -15,6 +15,6 @@ timeout /t 1 /nobreak
 hdc shell snapshot_display -f /data/local/tmp/0.jpeg
 
 
-hdc file recv /data/local/tmp/0.jpeg !filename!
+hdc file recv /data/local/tmp/0.jpeg "data/!filename!"
 hdc shell aa force-stop com.example.glass
 :done
