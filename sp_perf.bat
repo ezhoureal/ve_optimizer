@@ -19,7 +19,7 @@ hdc shell power-shell wakeup
 
 echo [sp_perf.bat] launching SP_daemon and app (daemon runs until finished)...
 powershell -NoProfile -Command "\
-$p = Start-Process -FilePath 'hdc' -ArgumentList 'shell','SP_daemon -N 5 -g -gc -ci' -NoNewWindow -PassThru; \
+$p = Start-Process -FilePath 'hdc' -ArgumentList 'shell','SP_daemon -N 3 -g -gc -ci' -NoNewWindow -PassThru; \
 Start-Sleep -Seconds 2; \
 Start-Process -FilePath 'hdc' -ArgumentList 'shell','aa start -b com.example.glass -a EntryAbility' -NoNewWindow; \
 $p.WaitForExit();"
