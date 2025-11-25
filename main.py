@@ -5,7 +5,7 @@ import numpy as np
 import random
 from config_ve import VisualEffect, send_config, DEFAULT_EFFECTS
 from performance import PerformanceScoreDriver
-from quality import test_quality
+from quality import test_quality, get_base_snapshot
 
 class EffectChain:
     def __init__(self):
@@ -13,8 +13,9 @@ class EffectChain:
         self.typeIndex: Dict[str, List[str]] = {}         # 视效名字 --> id
         # self.callGraph: Dict[str, Set[str]] = {}        # id 之间的调用关系, 现阶段先不管
         self.theta = []
-        # Initialize performance driver for real evaluation
-        self.perf_driver = PerformanceScoreDriver(init_sample_size=1, verbose=False)
+        send_config(DEFAULT_EFFECTS) # run baselines with default effects
+        get_base_snapshot()
+        self.perf_driver = PerformanceScoreDriver(init_sample_size=10, verbose=False)
 
     def createEffect(self, eff: VisualEffect):
         name = eff.name
@@ -30,7 +31,7 @@ class EffectChain:
         self.effectTable = {}
         self.typeIndex = {}
         self.theta = []
-        self.o_ranges = []
+        self.value_ranges = []
     
     def reset_theta(self, theta):
         if len(theta) == 3 * len(self.effectTable):
@@ -66,7 +67,7 @@ class EffectChain:
         for i, keyname in enumerate(self.effectTable.keys()):
             self.effectTable[keyname].update_theta(theta[3*i:3*i+3])
             q = self.effectTable[keyname]
-            # Use theta[3*i] as the continuous o value (within o_range)
+            # Use theta[3*i] as the continuous o value (within value_range)
             ve_options.append(q)
         try:
             send_config(ve_options)
@@ -87,6 +88,7 @@ class EffectChain:
         except Exception as e:
             print(f"Error in performance evaluation: {e}")
             performance_loss = float('inf')
+        print(f'evaluated performance loss: {performance_loss}, quality loss: {quality_loss}')
         return performance_loss, quality_loss
 
     def simpleLoss(self, theta):
@@ -126,7 +128,7 @@ class EffectChain:
         return cost
 
 def effectCodeGen(chain: EffectChain) -> list[float]:
-    """Generate initial effect code with continuous o values within o_range bounds.
+    """Generate initial effect code with continuous o values within value_range bounds.
     
     Returns:
         List of parameters: [o_0, t_0, s_0, o_1, t_1, s_1, ...]
@@ -134,7 +136,7 @@ def effectCodeGen(chain: EffectChain) -> list[float]:
     """
     a = []
     for effect in chain.effectTable.values():
-        o_min, o_max =  effect.o_range
+        o_min, o_max =  effect.value_range
         # Generate continuous o value within range
         a.append(np.random.uniform(o_min, o_max))
         # Discrete values for frame rate and resolution
@@ -162,11 +164,11 @@ class simpleGASolver:
         self.toolbox = toolbox
     
     def mut0(self, individual, indpb):
-        """Mutate individual respecting o_range bounds for continuous parameters."""
+        """Mutate individual respecting value_range bounds for continuous parameters."""
         for i in range(len(self.effChain.effectTable.keys())):
             # Mutate o (continuous, within range)
             if random.random() < indpb:
-                o_min, o_max = self.effChain.o_ranges[i]
+                o_min, o_max = self.effChain.value_ranges[i]
                 individual[i*3] = np.random.uniform(o_min, o_max)
             # Mutate t (discrete: 0-3 for frame rate)
             if random.random() < indpb:
