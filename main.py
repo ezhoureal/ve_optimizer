@@ -1,4 +1,6 @@
+import time
 from typing import Dict, List
+import matplotlib
 import matplotlib.pyplot as plt
 from deap import base, creator, tools
 import numpy as np
@@ -74,9 +76,7 @@ class EffectChain:
             print(f"Error in VE configuration: {e}")        
         # Get quality loss via SSIM score
         try:
-            quality_loss = 1.0 - test_quality()  # Convert similarity to loss (1 - score)
-            if quality_loss is None:
-                quality_loss = float('inf')
+            quality_loss = test_quality()
         except Exception as e:
             print(f"Error in quality evaluation: {e}")
             quality_loss = float('inf')
@@ -258,7 +258,17 @@ class SimpleGASolver:
                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
         
         plt.tight_layout()
-        plt.show()
+        # If backend is non-interactive (e.g., 'Agg'), save figure instead of showing
+        try:
+            backend = matplotlib.get_backend().lower()
+        except Exception:
+            backend = ''
+        if backend == 'agg':
+            out_file = 'pareto_front.png'
+            plt.savefig(out_file)
+            print(f"Non-interactive backend '{backend}' detected; figure saved to {out_file}")
+        else:
+            plt.show()
 
 if __name__ == "__main__":
     # Test1. 随机创建 10 个效果，随机生成模拟数据并画图
@@ -267,6 +277,7 @@ if __name__ == "__main__":
     # sol = simpleGASolver(a)
 
     # Test2. 接入真实的评估机制
+    starting_time = time.time()
     a = EffectChain()
     for effect in DEFAULT_EFFECTS:
         a.createEffect(effect)
@@ -275,3 +286,40 @@ if __name__ == "__main__":
 
     pf, pop = sol.run(n = 20, iterations = 50, CXPB=0.7, MUTPB=0.2)
     sol.plot_2D_PF(pf)
+    print(f'Result: ')
+    elapsed = time.time() - starting_time
+    hours = elapsed / 3600.0
+    print(f'Running Time = {hours:.2f} hours')
+
+    # Helper to pretty-print an individual's config
+    def _print_config(individual, chain, header=None):
+        if header:
+            print(header)
+        print(f'  Objectives (Cost, Quality Loss): {individual.fitness.values}')
+        for i, eff_id in enumerate(chain.effectTable.keys()):
+            o = individual[3*i]
+            t = int(individual[3*i+1])
+            s = int(individual[3*i+2])
+            print(f'    {eff_id}: value={o:.6f}, t={t}, s={s}')
+        print('')
+
+    # Ensure we have pareto solutions
+    pareto_list = list(pf)
+    if len(pareto_list) == 0:
+        print('No Pareto solutions found.')
+    else:
+        # Print all Pareto solutions summary (optional - can be removed if too verbose)
+        print(f'Found {len(pareto_list)} Pareto solutions. Listing best configs:')
+
+        # Best by cost (objective 0)
+        best_cost = min(pareto_list, key=lambda ind: ind.fitness.values[0])
+        _print_config(best_cost, a, header='Best (min) Cost configuration:')
+
+        # Best by quality (objective 1)
+        best_quality = min(pareto_list, key=lambda ind: ind.fitness.values[1])
+        _print_config(best_quality, a, header='Best (min) Quality Loss configuration:')
+
+        # Optionally print all Pareto solutions (uncomment if desired)
+        # for idx, ind in enumerate(pareto_list, 1):
+        #     _print_config(ind, a, header=f'Pareto solution #{idx}:')
+

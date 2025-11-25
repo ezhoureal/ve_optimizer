@@ -1,3 +1,5 @@
 *.csv
 *.jpeg
+*.png
 __pycache__/*
+config.json
