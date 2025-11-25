@@ -183,16 +183,7 @@ def test_quality() -> float:
         print(f"Visual Loss: {(1 - ssim_score) * 100:.2f}%")
     
     print("\n" + "="*50 + "\n")
-    
-    # Get detailed breakdown
-    detailed_scores = get_detailed_ssim(filename)
-    if detailed_scores:
-        print("Detailed SSIM Scores:")
-        for component, score in detailed_scores.items():
-            print(f"  {component}: {score:.6f}")
-        
-        return detailed_scores.get('All', 0)
-    return 0.0
+    return (1 - ssim_score) * 100 # scale to percentage to better match other loss metrics
 
 # Example usage
 if __name__ == "__main__":

@@ -31,7 +31,6 @@ class EffectChain:
         self.effectTable = {}
         self.typeIndex = {}
         self.theta = []
-        self.value_ranges = []
     
     def reset_theta(self, theta):
         if len(theta) == 3 * len(self.effectTable):
@@ -47,19 +46,19 @@ class EffectChain:
         for eff in self.effectTable.keys():
             self.theta += self.effectTable[eff].theta
     
-    def genNSamples(self, N):
-        self.reset()
-        for i in range(N):
-            ex = VisualEffect("testEffect")
-            self.createEffect(ex)
-        # 每个视效对 q 的整体贡献
-        self.debugQuality = np.random.randint(0, 10001, N)
-        # 帧率对 q 的影响程度: 流畅度打分
-        self.debugFrame = np.random.randint(0, 101, N)
-        # 分辨率有 0.25 概率对视效影响大, 0.75 概率没什么影响
-        self.debugResolution = np.random.uniform(0, 1, N)
-        # 每个视效对 cost 的整体贡献
-        self.debugCost = np.random.randint(0, 10001, N)
+    # def genNSamples(self, N):
+    #     self.reset()
+    #     for i in range(N):
+    #         ex = VisualEffect("testEffect")
+    #         self.createEffect(ex)
+    #     # 每个视效对 q 的整体贡献
+    #     self.debugQuality = np.random.randint(0, 10001, N)
+    #     # 帧率对 q 的影响程度: 流畅度打分
+    #     self.debugFrame = np.random.randint(0, 101, N)
+    #     # 分辨率有 0.25 概率对视效影响大, 0.75 概率没什么影响
+    #     self.debugResolution = np.random.uniform(0, 1, N)
+    #     # 每个视效对 cost 的整体贡献
+    #     self.debugCost = np.random.randint(0, 10001, N)
 
     def hdcLoss(self, theta):
         # 注意我们规定 loss 越小越好, loss = 0 表示满血视效
@@ -144,12 +143,10 @@ def effectCodeGen(chain: EffectChain) -> list[float]:
         a.append(np.random.randint(0, 4))
     return a
 
-class simpleGASolver:
+class SimpleGASolver:
     def __init__(self, effChain: EffectChain, isEvaluate = False):
         self.effChain = effChain
         self.isEvaluate = isEvaluate
-        def gen_N_effCode():
-            return len(self.effChain.effectTable)
         creator.create("FitnessMulti", base.Fitness, weights=(-1.0, -1.0)) # -1 是最小化问题
         creator.create("Individual", list, fitness=creator.FitnessMulti)   # 创建个体类
         toolbox = base.Toolbox()
@@ -165,17 +162,17 @@ class simpleGASolver:
     
     def mut0(self, individual, indpb):
         """Mutate individual respecting value_range bounds for continuous parameters."""
-        for i in range(len(self.effChain.effectTable.keys())):
-            # Mutate o (continuous, within range)
+        for i, eff in enumerate(self.effChain.effectTable.values()):
+            # Mutate o (continuous, within effect.value_range)
             if random.random() < indpb:
-                o_min, o_max = self.effChain.value_ranges[i]
-                individual[i*3] = np.random.uniform(o_min, o_max)
+                o_min, o_max = eff.value_range
+                individual[3*i] = np.random.uniform(o_min, o_max)
             # Mutate t (discrete: 0-3 for frame rate)
             if random.random() < indpb:
-                individual[i*3+1] = np.random.randint(0, 4)
+                individual[3*i+1] = int(np.random.randint(0, 4))
             # Mutate s (discrete: 0-3 for resolution)
             if random.random() < indpb:
-                individual[i*3+2] = np.random.randint(0, 4)
+                individual[3*i+2] = int(np.random.randint(0, 4))
         return individual,
 
     def run(self, n=100, iterations=50, CXPB=0.7, MUTPB=0.2):
@@ -187,6 +184,7 @@ class simpleGASolver:
 
         # 迭代进化（比如50代）
         for gen in range(iterations):
+            print(f'============= starting generation {gen+1}/{iterations} ================')
             # 选择、交叉、变异生成后代
             offspring = self.toolbox.select(population, len(population))
             offspring = list(map(self.toolbox.clone, offspring))
@@ -273,7 +271,7 @@ if __name__ == "__main__":
     for effect in DEFAULT_EFFECTS:
         a.createEffect(effect)
     # 请在 hdcLoss 函数里对接脚本进行评估, loss 越小越好
-    sol = simpleGASolver(a, isEvaluate=True)
+    sol = SimpleGASolver(a, isEvaluate=True)
 
     pf, pop = sol.run(n = 20, iterations = 50, CXPB=0.7, MUTPB=0.2)
     sol.plot_2D_PF(pf)

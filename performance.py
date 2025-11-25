@@ -90,7 +90,7 @@ class PerformanceScoreDriver:
 
     def __init__(
         self,
-        init_sample_size: int = 50,
+        init_sample_size: int,
         verbose: bool = False,
         min_std: float = 1e-6,
     ) -> None:
