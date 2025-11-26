@@ -21,11 +21,13 @@ def get_ssim_score(filename, base_file=BASE_IMAGE):
     """
     try:
         # Build the ffmpeg command
+        # Crop out the top 200 pixels from both inputs, then run SSIM on the cropped regions
+        # [0:v] and [1:v] refer to the two inputs (base_file and filename)
         cmd = [
             'ffmpeg',
             '-i', base_file,
             '-i', filename,
-            '-lavfi', 'ssim',
+            '-lavfi', '[0:v]crop=iw:ih-200:0:200[a];[1:v]crop=iw:ih-200:0:200[b];[a][b]ssim',
             '-f', 'null',
             '-'
         ]
@@ -61,51 +63,6 @@ def get_ssim_score(filename, base_file=BASE_IMAGE):
         return None
     except Exception as e:
         print(f"Unexpected error: {e}")
-        return None
-
-# More robust version that also returns the full SSIM breakdown
-def get_detailed_ssim(filename, base_file=BASE_IMAGE):
-    """
-    Get detailed SSIM scores including Y, U, V components
-    
-    Args:
-        filename (str): Path to the video file to compare
-        base_file (str): Path to the base video file
-    
-    Returns:
-        dict: Dictionary with SSIM scores or None if error
-    """
-    try:
-        cmd = [
-            'ffmpeg',
-            '-i', base_file,
-            '-i', filename,
-            '-lavfi', 'ssim',
-            '-f', 'null',
-            '-'
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output = result.stderr
-        
-        # Pattern for all SSIM components
-        patterns = {
-            'Y': r"Y:([0-9.]+)",
-            'U': r"U:([0-9.]+)", 
-            'V': r"V:([0-9.]+)",
-            'All': r"All:([0-9.]+)"
-        }
-        
-        scores = {}
-        for component, pattern in patterns.items():
-            match = re.search(pattern, output)
-            if match:
-                scores[component] = float(match.group(1))
-        
-        return scores if scores else None
-        
-    except Exception as e:
-        print(f"Error: {e}")
         return None
 
 def get_snapshot(batch_script_path=RECORD_BATCH):
