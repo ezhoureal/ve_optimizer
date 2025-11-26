@@ -1,3 +1,9 @@
+COLONY_SIZE = 20
+ITERATIONS = 60
+CXPB = 0.7
+MUTPB = 0.2
+PERFORMANCE_BASE_SAMPLE_SIZE = 15
+
 import time
 import json
 from typing import Dict, List
@@ -11,14 +17,14 @@ from performance import PerformanceScoreDriver
 from quality import test_quality, get_base_snapshot
 
 class EffectChain:
-    def __init__(self, init_sample: int):
+    def __init__(self):
         self.effectTable: Dict[str, VisualEffect] = {}      # id --> 视效
         self.typeIndex: Dict[str, List[str]] = {}         # 视效名字 --> id
         # self.callGraph: Dict[str, Set[str]] = {}        # id 之间的调用关系, 现阶段先不管
         self.theta = []
         send_config(DEFAULT_EFFECTS) # run baselines with default effects
         get_base_snapshot()
-        self.perf_driver = PerformanceScoreDriver(init_sample_size=init_sample, verbose=True)
+        self.perf_driver = PerformanceScoreDriver(init_sample_size=PERFORMANCE_BASE_SAMPLE_SIZE, verbose=True)
 
     def createEffect(self, eff: VisualEffect):
         name = eff.name
@@ -160,6 +166,7 @@ class SimpleGASolver:
         toolbox.register("mutate", self.mut0, indpb=0.05)
         toolbox.register("select", tools.selNSGA2)
         self.toolbox = toolbox
+        self.generation_best_scores = []  # Track best score per generation
     
     def mut0(self, individual, indpb):
         """Mutate individual respecting value_range bounds for continuous parameters."""
@@ -176,16 +183,16 @@ class SimpleGASolver:
                 individual[3*i+2] = int(np.random.randint(0, 4))
         return individual,
 
-    def run(self, n=100, iterations=50, CXPB=0.7, MUTPB=0.2):
+    def run(self) -> tuple[tools.ParetoFront, any]:
         self.evaluateTime = 0
-        population = self.toolbox.population(n)
+        population = self.toolbox.population(COLONY_SIZE)
         fitnesses = self.toolbox.map(self.toolbox.evaluate, population)
         for ind, fit in zip(population, fitnesses):
             ind.fitness.values = fit
 
         # 迭代进化（比如50代）
-        for gen in range(iterations):
-            print(f'============= starting generation {gen+1}/{iterations} ================')
+        for gen in range(ITERATIONS):
+            print(f'============= starting generation {gen+1}/{ITERATIONS} ================')
             # 选择、交叉、变异生成后代
             offspring = self.toolbox.select(population, len(population))
             offspring = list(map(self.toolbox.clone, offspring))
@@ -207,6 +214,21 @@ class SimpleGASolver:
 
             # 环境选择：用后代替换原种群
             population = self.toolbox.select(population + offspring, len(population))
+            
+            # Track best score of this generation
+            best_individual = min(population, key=lambda ind: ind.fitness.values[0] + ind.fitness.values[1])
+            best_loss_sum = best_individual.fitness.values[0] + best_individual.fitness.values[1]
+            best_cost = min(population, key=lambda ind: ind.fitness.values[0]).fitness.values[0]
+            best_quality = min(population, key=lambda ind: ind.fitness.values[1]).fitness.values[1]
+            best_score = {
+                "generation": gen + 1,
+                "cost": best_cost,
+                "quality_loss": best_quality,
+                "best_loss_sum": best_loss_sum
+            }
+            self.generation_best_scores.append(best_score)
+            print(f'  Generation {gen+1} best score - Overall: {best_score["best_loss_sum"]}, Cost: {best_score["cost"]:.6f}, Quality Loss: {best_score["quality_loss"]:.6f}')
+
         
         # 获取帕累托最优解集
         pareto_front = tools.ParetoFront()
@@ -271,21 +293,63 @@ class SimpleGASolver:
         else:
             plt.show()
 
-if __name__ == "__main__":
-    # Test1. 随机创建 10 个效果，随机生成模拟数据并画图
-    # a = effectChain()
-    # a.genNSamples(10)
-    # sol = simpleGASolver(a)
+    def plot_generation_best_scores(self, title="Generation Convergence"):
+        """Plot cost and quality loss over generations."""
+        if not self.generation_best_scores:
+            print("No generation scores to plot.")
+            return
+        
+        generations = [score["generation"] for score in self.generation_best_scores]
+        costs = [score["cost"] for score in self.generation_best_scores]
+        quality_losses = [score["quality_loss"] for score in self.generation_best_scores]
+        best_loss_sums = [score["best_loss_sum"] for score in self.generation_best_scores]
+    
+        # Create figure with two subplots
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 5))
+        
+        # Plot cost convergence
+        ax1.plot(generations, costs, 'b-o', linewidth=2, markersize=4)
+        ax1.set_xlabel('Generation')
+        ax1.set_ylabel('Best Cost')
+        ax1.set_title('Cost Convergence')
+        ax1.grid(True, alpha=0.3)
+        
+        # Plot quality loss convergence
+        ax2.plot(generations, quality_losses, 'g-o', linewidth=2, markersize=4)
+        ax2.set_xlabel('Generation')
+        ax2.set_ylabel('Best Quality Loss')
+        ax2.set_title('Quality Loss Convergence')
+        ax2.grid(True, alpha=0.3)
 
-    # Test2. 接入真实的评估机制
+        # Plot best overall convergence on ax3
+        ax3.plot(generations, best_loss_sums, 'r-o', linewidth=2, markersize=4)
+        ax3.set_xlabel('Generation')
+        ax3.set_ylabel('Best Overall Score')
+        ax3.set_title('Overall Score Convergence')
+        ax3.grid(True, alpha=0.3)        
+        plt.tight_layout()
+        
+        # If backend is non-interactive (e.g., 'Agg'), save figure instead of showing
+        try:
+            backend = matplotlib.get_backend().lower()
+        except Exception:
+            backend = ''
+        if backend == 'agg':
+            out_file = 'generation_convergence.png'
+            plt.savefig(out_file)
+            print(f"Non-interactive backend '{backend}' detected; figure saved to {out_file}")
+        else:
+            plt.show()
+
+if __name__ == "__main__":
     starting_time = time.time()
-    a = EffectChain(init_sample=20)
+    a = EffectChain()
     for effect in DEFAULT_EFFECTS:
         a.createEffect(effect)
     # 请在 hdcLoss 函数里对接脚本进行评估, loss 越小越好
     sol = SimpleGASolver(a, isEvaluate=True)
 
-    pf, pop = sol.run(n = 20, iterations = 50, CXPB=0.7, MUTPB=0.2)
+    pf, pop = sol.run()
 
     # ============ PRINT RESULTS ==========================
     sol.plot_2D_PF(pf)
@@ -294,6 +358,9 @@ if __name__ == "__main__":
     elapsed = time.time() - starting_time
     hours = elapsed / 3600.0
     print(f'Running Time = {hours:.2f} hours')
+    
+    # Plot generation best scores
+    sol.plot_generation_best_scores()
 
     # Helper to pretty-print an individual's config
     def _print_config(individual, chain, header=None):
