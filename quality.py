@@ -1,6 +1,11 @@
 BASE_IMAGE = "base.jpeg"
 DATA_DIR = "data/"
-RECORD_BATCH = "./snap.sh"
+
+import platform
+if platform.system() == "Windows":
+    RECORD_BATCH = "snap.bat"
+else:
+    RECORD_BATCH = "./snap.sh"
 
 import os
 import subprocess
