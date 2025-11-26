@@ -49,7 +49,6 @@ def send_config(effects: list[VisualEffect]):
     config = {}
     
     for opt in effects:
-        print(f"Configuring VE: value={opt.value}")
         config[opt.name] = opt.value
     
     # Generate JSON file
@@ -62,8 +61,6 @@ def send_config(effects: list[VisualEffect]):
     return config
 
 DEFAULT_EFFECTS = [
-    VisualEffect(name="borderSizeX", value=350, value_range=(100, 600)),
-    VisualEffect(name="borderSizeY", value=250, value_range=(100, 600)),
     VisualEffect(name="cornerRadius", value=35, value_range=(10, 100)),
     VisualEffect(name="blurParamsR2", value=48, value_range=(10, 100)),
     VisualEffect(name="blurParamsK", value=4, value_range=(1, 10)),
@@ -87,8 +84,6 @@ DEFAULT_EFFECTS = [
     VisualEffect(name="hlK", value=0.6027, value_range=(0, 1)),
     VisualEffect(name="hlB", value=160, value_range=(0, 255)),
     VisualEffect(name="hlS", value=2.0, value_range=(0, 5)),
-    VisualEffect(name="glassPositionX", value=50, value_range=(0, 1080)),
-    VisualEffect(name="glassPositionY", value=600, value_range=(0, 1920)),
     VisualEffect(name="bgFactor", value=0.9, value_range=(0, 1))
 ]
 

@@ -1,4 +1,5 @@
 import time
+import json
 from typing import Dict, List
 import matplotlib
 import matplotlib.pyplot as plt
@@ -10,20 +11,20 @@ from performance import PerformanceScoreDriver
 from quality import test_quality, get_base_snapshot
 
 class EffectChain:
-    def __init__(self):
+    def __init__(self, init_sample: int):
         self.effectTable: Dict[str, VisualEffect] = {}      # id --> 视效
         self.typeIndex: Dict[str, List[str]] = {}         # 视效名字 --> id
         # self.callGraph: Dict[str, Set[str]] = {}        # id 之间的调用关系, 现阶段先不管
         self.theta = []
         send_config(DEFAULT_EFFECTS) # run baselines with default effects
         get_base_snapshot()
-        self.perf_driver = PerformanceScoreDriver(init_sample_size=10, verbose=False)
+        self.perf_driver = PerformanceScoreDriver(init_sample_size=init_sample, verbose=True)
 
     def createEffect(self, eff: VisualEffect):
         name = eff.name
         if name not in self.typeIndex.keys():
-            ids = name+"0"
-            self.typeIndex[name] = [name+"0"]
+            ids = name
+            self.typeIndex[name] = [name]
         else:
             ids = name+str(len(self.typeIndex[name]))
             self.typeIndex[name].append(ids)
@@ -278,15 +279,18 @@ if __name__ == "__main__":
 
     # Test2. 接入真实的评估机制
     starting_time = time.time()
-    a = EffectChain()
+    a = EffectChain(init_sample=20)
     for effect in DEFAULT_EFFECTS:
         a.createEffect(effect)
     # 请在 hdcLoss 函数里对接脚本进行评估, loss 越小越好
     sol = SimpleGASolver(a, isEvaluate=True)
 
     pf, pop = sol.run(n = 20, iterations = 50, CXPB=0.7, MUTPB=0.2)
+
+    # ============ PRINT RESULTS ==========================
     sol.plot_2D_PF(pf)
-    print(f'Result: ')
+    # Highlight the print in yellow using ANSI escape codes (works in most terminals)
+    print("\033[93m================ Result:\033[0m")
     elapsed = time.time() - starting_time
     hours = elapsed / 3600.0
     print(f'Running Time = {hours:.2f} hours')
@@ -319,7 +323,28 @@ if __name__ == "__main__":
         best_quality = min(pareto_list, key=lambda ind: ind.fitness.values[1])
         _print_config(best_quality, a, header='Best (min) Quality Loss configuration:')
 
-        # Optionally print all Pareto solutions (uncomment if desired)
-        # for idx, ind in enumerate(pareto_list, 1):
-        #     _print_config(ind, a, header=f'Pareto solution #{idx}:')
+        # Export all Pareto solutions to JSON
+        pareto_export = []
+        for ind in pareto_list:
+            score = {
+                "cost": float(ind.fitness.values[0]),
+                "quality_loss": float(ind.fitness.values[1])
+            }
+            # Build config dict matching config.json format (name -> value)
+            config = {}
+            for i, eff_id in enumerate(a.effectTable.keys()):
+                # Each individual stores triples [value, frameRate, resolution]
+                config[eff_id] = float(ind[3*i])
+
+            pareto_export.append({
+                "score": score,
+                "config": config
+            })
+
+        out_filename = 'pareto_solutions.json'
+        with open(out_filename, 'w') as jf:
+            json.dump(pareto_export, jf, indent=4)
+        print(f'Pareto solutions exported to {out_filename}')
+
+        
 
