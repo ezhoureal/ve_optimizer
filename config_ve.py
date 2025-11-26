@@ -65,6 +65,7 @@ DEFAULT_EFFECTS = [
     VisualEffect(name="blurParamsK", value=4, value_range=(1, 10)),
     VisualEffect(name="embossOffset", value=1.88, value_range=(0.5, 5)),
     VisualEffect(name="refractOutPx", value=20, value_range=(5, 50)),
+    VisualEffect(name="downSampleFactor", value=1.0, value_range=(0.1, 1.0)),
     VisualEffect(name="envK", value=0.8, value_range=(0, 1)),
     VisualEffect(name="envB", value=0, value_range=(0, 255)),
     VisualEffect(name="envS", value=0, value_range=(0, 2)),
