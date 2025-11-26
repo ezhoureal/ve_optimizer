@@ -61,10 +61,8 @@ def send_config(effects: list[VisualEffect]):
     return config
 
 DEFAULT_EFFECTS = [
-    VisualEffect(name="cornerRadius", value=35, value_range=(10, 100)),
     VisualEffect(name="blurParamsR2", value=48, value_range=(10, 100)),
     VisualEffect(name="blurParamsK", value=4, value_range=(1, 10)),
-    VisualEffect(name="borderWidthPx", value=2.9, value_range=(1, 10)),
     VisualEffect(name="embossOffset", value=1.88, value_range=(0.5, 5)),
     VisualEffect(name="refractOutPx", value=20, value_range=(5, 50)),
     VisualEffect(name="envK", value=0.8, value_range=(0, 1)),
@@ -84,7 +82,6 @@ DEFAULT_EFFECTS = [
     VisualEffect(name="hlK", value=0.6027, value_range=(0, 1)),
     VisualEffect(name="hlB", value=160, value_range=(0, 255)),
     VisualEffect(name="hlS", value=2.0, value_range=(0, 5)),
-    VisualEffect(name="bgFactor", value=0.9, value_range=(0, 1))
 ]
 
 if __name__ == "__main__":
