@@ -9,15 +9,10 @@ WORK_DIR = "."
 DATA_DIR = "data"
 COLUMNS = ["gpuLoad", "hw-cpu-cycles", "hw-instructions"]
 
-import platform
-if platform.system() == "Windows":
-    SP_SCRIPT = ".\\sp_perf.bat"
-else:
-    SP_SCRIPT = "./sp_perf.sh"
-
 import csv
 import glob
 import os
+import platform
 import statistics
 import subprocess
 from typing import Optional, List
@@ -68,9 +63,15 @@ def _column_means_from_csv(filepath: str, target_columns: Optional[List[str]] = 
 
 def _run_script_and_get_column_means() -> dict:
     """Optionally run `sp_script` and return per-column means for the latest CSV."""
-    proc = subprocess.run(["bash", SP_SCRIPT], cwd=WORK_DIR, capture_output=True, text=True)
+    if platform.system() == "Windows":
+        # prefer pwsh (PowerShell Core) if available, fall back to Windows PowerShell
+        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", '.\\sp_perf.ps1']
+    else:
+        cmd = ["bash", './sp_perf.sh']
+
+    proc = subprocess.run(cmd, cwd=WORK_DIR, capture_output=True, text=True)
     if proc.returncode != 0:
-        raise RuntimeError(f"script {SP_SCRIPT} failed (rc={proc.returncode})\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}")
+        raise RuntimeError(f"script failed (rc={proc.returncode})\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}")
 
     pattern = os.path.join(DATA_DIR, "sp_*.csv")
     matches = glob.glob(pattern)
