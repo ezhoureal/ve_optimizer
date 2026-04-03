@@ -1,245 +1,28 @@
-COLONY_SIZE = 20
-ITERATIONS = 60
-CXPB = 0.7
-MUTPB = 0.2
-PERFORMANCE_BASE_SAMPLE_SIZE = 15
+DATA_BASE_DIR = "data"
 
-import time
+import os
 import json
-from typing import Dict, List
+import pickle
+import time
+import datetime
 import matplotlib
 import matplotlib.pyplot as plt
-from deap import base, creator, tools
 import numpy as np
-import random
-from config_ve import VisualEffect, send_config, DEFAULT_EFFECTS
+from deap import tools
+from pymoo.indicators.hv import HV
+
+from config_ve import send_config, DEFAULT_EFFECTS
+from quality import get_base_snapshots
+from visual import GASettings
+from evolution import EffectChain, SimpleGASolver, init_env, initial_param_test
 from performance import PerformanceScoreDriver
-from quality import test_quality, get_base_snapshot
 
-class EffectChain:
-    def __init__(self):
-        self.effectTable: Dict[str, VisualEffect] = {}      # id --> 视效
-        self.typeIndex: Dict[str, List[str]] = {}         # 视效名字 --> id
-        # self.callGraph: Dict[str, Set[str]] = {}        # id 之间的调用关系, 现阶段先不管
-        self.theta = []
-        send_config(DEFAULT_EFFECTS) # run baselines with default effects
-        get_base_snapshot()
-        self.perf_driver = PerformanceScoreDriver(init_sample_size=PERFORMANCE_BASE_SAMPLE_SIZE, verbose=True)
-
-    def createEffect(self, eff: VisualEffect):
-        name = eff.name
-        if name not in self.typeIndex.keys():
-            ids = name
-            self.typeIndex[name] = [name]
-        else:
-            ids = name+str(len(self.typeIndex[name]))
-            self.typeIndex[name].append(ids)
-        self.effectTable[ids] = eff
-
-    def reset(self):
-        self.effectTable = {}
-        self.typeIndex = {}
-        self.theta = []
-    
-    def reset_theta(self, theta):
-        if len(theta) == 3 * len(self.effectTable):
-            i = 0
-            for eff in self.effectTable.keys():
-                if self.effectTable[eff].update_theta(theta[3*i:3*i+3]) == 0:
-                    print(f"参数 {eff} 不匹配")
-                    return
-                i += 1
-
-    def initial_theta(self):
-        self.theta = []
-        for eff in self.effectTable.keys():
-            self.theta += self.effectTable[eff].theta
-    
-    # def genNSamples(self, N):
-    #     self.reset()
-    #     for i in range(N):
-    #         ex = VisualEffect("testEffect")
-    #         self.createEffect(ex)
-    #     # 每个视效对 q 的整体贡献
-    #     self.debugQuality = np.random.randint(0, 10001, N)
-    #     # 帧率对 q 的影响程度: 流畅度打分
-    #     self.debugFrame = np.random.randint(0, 101, N)
-    #     # 分辨率有 0.25 概率对视效影响大, 0.75 概率没什么影响
-    #     self.debugResolution = np.random.uniform(0, 1, N)
-    #     # 每个视效对 cost 的整体贡献
-    #     self.debugCost = np.random.randint(0, 10001, N)
-
-    def hdcLoss(self, theta):
-        # 注意我们规定 loss 越小越好, loss = 0 表示满血视效
-        ve_options = []
-        for i, keyname in enumerate(self.effectTable.keys()):
-            self.effectTable[keyname].update_theta(theta[3*i:3*i+3])
-            q = self.effectTable[keyname]
-            # Use theta[3*i] as the continuous o value (within value_range)
-            ve_options.append(q)
-        try:
-            send_config(ve_options)
-        except Exception as e:
-            print(f"Error in VE configuration: {e}")        
-        # Get quality loss via SSIM score
-        try:
-            quality_loss = test_quality()
-        except Exception as e:
-            print(f"Error in quality evaluation: {e}")
-            quality_loss = float('inf')
-        
-        # Get performance loss via performance driver
-        try:
-            performance_loss = self.perf_driver.loss()
-        except Exception as e:
-            print(f"Error in performance evaluation: {e}")
-            performance_loss = float('inf')
-        print(f'evaluated performance loss: {performance_loss}, quality loss: {quality_loss}')
-        return performance_loss, quality_loss
-
-    def simpleLoss(self, theta):
-        loss = 0
-        for i in range(len(self.effectTable.keys())):
-            lossAll = self.debugQuality[i]
-            a = theta[3*i]
-            if a == 0:
-                loss += lossAll
-                continue
-            p = theta[3*i+1]
-            if p > 0:
-                lossAll *= 0.25 * p * self.debugFrame[i] / 300
-            r = theta[3*i+2]
-            if self.debugResolution[i] > 0.75:
-                loss += 0.25 * r * lossAll
-            else:
-                loss += 0.25 * r * lossAll / 20
-        return loss
-
-    def simpleCost(self, theta):
-        cost = 0
-        for i in range(len(self.effectTable.keys())):
-            costAll = self.debugCost[i]
-            a = theta[3*i]
-            if a == 0:
-                continue
-            r = theta[3*i+2]
-            if r == 1:
-                costAll *= 0.3
-            elif r == 2:
-                costAll *= 0.2
-            elif r == 3:
-                costAll *= 0.1
-            p = theta[3*i+1]
-            cost += costAll * 0.25 * (4-p)
-        return cost
-
-def effectCodeGen(chain: EffectChain) -> list[float]:
-    """Generate initial effect code with continuous o values within value_range bounds.
-    
-    Returns:
-        List of parameters: [o_0, t_0, s_0, o_1, t_1, s_1, ...]
-        where o is continuous within range, t and s are discrete (0-3)
-    """
-    a = []
-    for effect in chain.effectTable.values():
-        o_min, o_max =  effect.value_range
-        # Generate continuous o value within range
-        a.append(np.random.uniform(o_min, o_max))
-        # Discrete values for frame rate and resolution
-        a.append(np.random.randint(0, 4))
-        a.append(np.random.randint(0, 4))
-    return a
-
-class SimpleGASolver:
-    def __init__(self, effChain: EffectChain, isEvaluate = False):
-        self.effChain = effChain
-        self.isEvaluate = isEvaluate
-        creator.create("FitnessMulti", base.Fitness, weights=(-1.0, -1.0)) # -1 是最小化问题
-        creator.create("Individual", list, fitness=creator.FitnessMulti)   # 创建个体类
-        toolbox = base.Toolbox()
-        toolbox.register("individual", tools.initIterate, creator.Individual, lambda: effectCodeGen(self.effChain))
-        toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-
-        toolbox.register("evaluate", self.evaluate)
-
-        toolbox.register("mate", tools.cxTwoPoint)  # 两点交叉
-        toolbox.register("mutate", self.mut0, indpb=0.05)
-        toolbox.register("select", tools.selNSGA2)
-        self.toolbox = toolbox
-        self.generation_best_scores = []  # Track best score per generation
-    
-    def mut0(self, individual, indpb):
-        """Mutate individual respecting value_range bounds for continuous parameters."""
-        for i, eff in enumerate(self.effChain.effectTable.values()):
-            # Mutate o (continuous, within effect.value_range)
-            if random.random() < indpb:
-                o_min, o_max = eff.value_range
-                individual[3*i] = np.random.uniform(o_min, o_max)
-            # Mutate t (discrete: 0-3 for frame rate)
-            if random.random() < indpb:
-                individual[3*i+1] = int(np.random.randint(0, 4))
-            # Mutate s (discrete: 0-3 for resolution)
-            if random.random() < indpb:
-                individual[3*i+2] = int(np.random.randint(0, 4))
-        return individual,
-
-    def run(self) -> tuple[tools.ParetoFront, any]:
-        self.evaluateTime = 0
-        population = self.toolbox.population(COLONY_SIZE)
-        fitnesses = self.toolbox.map(self.toolbox.evaluate, population)
-        for ind, fit in zip(population, fitnesses):
-            ind.fitness.values = fit
-
-        # 迭代进化（比如50代）
-        for gen in range(ITERATIONS):
-            print(f'============= starting generation {gen+1}/{ITERATIONS} ================')
-            # 选择、交叉、变异生成后代
-            offspring = self.toolbox.select(population, len(population))
-            offspring = list(map(self.toolbox.clone, offspring))
-            # 对后代进行交叉和变异
-            for child1, child2 in zip(offspring[::2], offspring[1::2]):
-                if random.random() < CXPB:  # 交叉概率
-                    self.toolbox.mate(child1, child2)
-                    del child1.fitness.values
-                    del child2.fitness.values
-            for mutant in offspring:
-                if random.random() < MUTPB:  # 变异概率
-                    self.toolbox.mutate(mutant)
-                    del mutant.fitness.values
-            # 评估无效的后代
-            invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-            fitnesses = self.toolbox.map(self.toolbox.evaluate, invalid_ind)
-            for ind, fit in zip(invalid_ind, fitnesses):
-                ind.fitness.values = fit
-
-            # 环境选择：用后代替换原种群
-            population = self.toolbox.select(population + offspring, len(population))
-            
-            # Track best score of this generation
-            best_individual = min(population, key=lambda ind: ind.fitness.values[0] + ind.fitness.values[1])
-            best_loss_sum = best_individual.fitness.values[0] + best_individual.fitness.values[1]
-            best_cost = min(population, key=lambda ind: ind.fitness.values[0]).fitness.values[0]
-            best_quality = min(population, key=lambda ind: ind.fitness.values[1]).fitness.values[1]
-            best_score = {
-                "generation": gen + 1,
-                "cost": best_cost,
-                "quality_loss": best_quality,
-                "best_loss_sum": best_loss_sum
-            }
-            self.generation_best_scores.append(best_score)
-            print(f'  Generation {gen+1} best score - Overall: {best_score["best_loss_sum"]}, Cost: {best_score["cost"]:.6f}, Quality Loss: {best_score["quality_loss"]:.6f}')
-
-        
-        # 获取帕累托最优解集
-        pareto_front = tools.ParetoFront()
-        pareto_front.update(population)
-        return pareto_front, population
-
-    def evaluate(self, effectCode):
-        self.evaluateTime += 1
-        if self.isEvaluate:
-            return self.effChain.hdcLoss(effectCode)
-        return self.effChain.simpleCost(effectCode), self.effChain.simpleLoss(effectCode)
+class PostProcess:
+    def __init__(self, path=None):
+        self.load_data = None
+        if path is not None:
+            with open(path, "rb") as f:
+                self.load_data = pickle.load(f)
 
     def plot_2D_PF(self, pareto_front, title="Pareto-Front"):
         if isinstance(pareto_front, tools.ParetoFront):
@@ -248,6 +31,8 @@ class SimpleGASolver:
             obj_values = pareto_front
         
         obj_array = np.array(obj_values)
+        if len(obj_array[0, :]) == 1:
+            return
         
         # 创建图形
         plt.figure(figsize=(10, 8))
@@ -267,7 +52,7 @@ class SimpleGASolver:
                     c='green', s=100, marker='^', label='best quality')
         
         # 设置标签和标题
-        objectives_names = ['Cost', 'Quality Loss']
+        objectives_names = ['Cost(1e5 Cycles)', 'Quality Loss(-dB)']
         
         plt.xlabel(objectives_names[0])
         plt.ylabel(objectives_names[1])
@@ -292,44 +77,48 @@ class SimpleGASolver:
             print(f"Non-interactive backend '{backend}' detected; figure saved to {out_file}")
         else:
             plt.show()
-
-    def plot_generation_best_scores(self, title="Generation Convergence"):
-        """Plot cost and quality loss over generations."""
-        if not self.generation_best_scores:
-            print("No generation scores to plot.")
-            return
-        
-        generations = [score["generation"] for score in self.generation_best_scores]
-        costs = [score["cost"] for score in self.generation_best_scores]
-        quality_losses = [score["quality_loss"] for score in self.generation_best_scores]
-        best_loss_sums = [score["best_loss_sum"] for score in self.generation_best_scores]
     
-        # Create figure with two subplots
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 5))
+    def analyse_pkl(self, load_data=None):
+        if load_data is None:
+            load_data = self.load_data
+            if load_data is None:
+                raise ValueError("请输入正确的数据: {代数: pareto_front}")
+
+        N = 1       # 最大代数
+        for key in load_data.keys():
+            if isinstance(key, int):
+                N = max(N, key)
         
-        # Plot cost convergence
-        ax1.plot(generations, costs, 'b-o', linewidth=2, markersize=4)
+        self.plot_2D_PF(load_data[N-1])
+        myHVind = HV(ref_point=np.array([100.0, 100.0]))
+        score = []
+        generations = []
+        evaluationTime = []
+        for i in range(N):
+            approx_set = np.array([ind.fitness.values for ind in load_data[i]])
+            if len(approx_set[0]) == 2:
+                hv_value = myHVind(approx_set)
+            elif len(approx_set[0]) == 1:
+                hv_value = np.min(approx_set)
+            score.append(-hv_value)
+            generations.append(i)
+            if "evaTime" in load_data.keys():
+                evaluationTime.append(load_data["evaTime"][i])
+            else:
+                evaluationTime.append(0)
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 5))
+        ax1.plot(generations, score, 'b-o', linewidth=2, markersize=4)
         ax1.set_xlabel('Generation')
-        ax1.set_ylabel('Best Cost')
+        ax1.set_ylabel('Cost value')
         ax1.set_title('Cost Convergence')
         ax1.grid(True, alpha=0.3)
-        
-        # Plot quality loss convergence
-        ax2.plot(generations, quality_losses, 'g-o', linewidth=2, markersize=4)
-        ax2.set_xlabel('Generation')
-        ax2.set_ylabel('Best Quality Loss')
-        ax2.set_title('Quality Loss Convergence')
-        ax2.grid(True, alpha=0.3)
 
-        # Plot best overall convergence on ax3
-        ax3.plot(generations, best_loss_sums, 'r-o', linewidth=2, markersize=4)
-        ax3.set_xlabel('Generation')
-        ax3.set_ylabel('Best Overall Score')
-        ax3.set_title('Overall Score Convergence')
-        ax3.grid(True, alpha=0.3)        
-        plt.tight_layout()
-        
-        # If backend is non-interactive (e.g., 'Agg'), save figure instead of showing
+        ax2.plot(generations, evaluationTime, 'b-o', linewidth=2, markersize=4)
+        ax2.set_xlabel('Generation')
+        ax2.set_ylabel('Evaluation time')
+        ax2.set_title('Time Consuming')
+        ax2.grid(True, alpha=0.3)
         try:
             backend = matplotlib.get_backend().lower()
         except Exception:
@@ -339,79 +128,119 @@ class SimpleGASolver:
             plt.savefig(out_file)
             print(f"Non-interactive backend '{backend}' detected; figure saved to {out_file}")
         else:
+            # plt.savefig(out_file)
             plt.show()
 
-if __name__ == "__main__":
-    starting_time = time.time()
-    a = EffectChain()
-    for effect in DEFAULT_EFFECTS:
-        a.createEffect(effect)
-    # 请在 hdcLoss 函数里对接脚本进行评估, loss 越小越好
-    sol = SimpleGASolver(a, isEvaluate=True)
-
-    pf, pop = sol.run()
-
-    # ============ PRINT RESULTS ==========================
-    sol.plot_2D_PF(pf)
-    # Highlight the print in yellow using ANSI escape codes (works in most terminals)
-    print("\033[93m================ Result:\033[0m")
-    elapsed = time.time() - starting_time
-    hours = elapsed / 3600.0
-    print(f'Running Time = {hours:.2f} hours')
-    
-    # Plot generation best scores
-    sol.plot_generation_best_scores()
-
-    # Helper to pretty-print an individual's config
-    def _print_config(individual, chain, header=None):
-        if header:
-            print(header)
-        print(f'  Objectives (Cost, Quality Loss): {individual.fitness.values}')
-        for i, eff_id in enumerate(chain.effectTable.keys()):
-            o = individual[3*i]
-            t = int(individual[3*i+1])
-            s = int(individual[3*i+2])
-            print(f'    {eff_id}: value={o:.6f}, t={t}, s={s}')
-        print('')
-
-    # Ensure we have pareto solutions
-    pareto_list = list(pf)
-    if len(pareto_list) == 0:
-        print('No Pareto solutions found.')
-    else:
+    def export_pareto(self, baseEffect=DEFAULT_EFFECTS, pf=None):
+        a = EffectChain(baseEffect)
+        if pf is None:
+            if self.load_data is None:
+                raise ValueError("请输入 pareto front")
+            N = 1       # 最大代数
+            for key in self.load_data.keys():
+                if isinstance(key, int):
+                    N = max(N, key)
+            pf = self.load_data[N-1]
+        pareto_list = list(pf)
+        if len(pareto_list) == 0:
+            print('No Pareto solutions found.')
+            return
         # Print all Pareto solutions summary (optional - can be removed if too verbose)
-        print(f'Found {len(pareto_list)} Pareto solutions. Listing best configs:')
+        print(f'Found {len(pareto_list)} Pareto solutions.')
+        runtag = str(datetime.datetime.now().strftime("%m%d%H%M%S"))
+        exportDir = os.path.join(DATA_BASE_DIR, runtag)
+        os.makedirs(exportDir, exist_ok=True)
 
-        # Best by cost (objective 0)
-        best_cost = min(pareto_list, key=lambda ind: ind.fitness.values[0])
-        _print_config(best_cost, a, header='Best (min) Cost configuration:')
+        # 在这里拿到 base 图, 做一些初始化工作
+        send_config(baseEffect) # run baselines with default effects
+        time.sleep(1) # wait for config to take effect
+        get_base_snapshots(data_dir=exportDir)
+        print(f'after base snapshot')
 
-        # Best by quality (objective 1)
-        best_quality = min(pareto_list, key=lambda ind: ind.fitness.values[1])
-        _print_config(best_quality, a, header='Best (min) Quality Loss configuration:')
+        # base 的性能数据也要保留
+        p, q = a.hdcLoss(a.theta, dst_name="base", data_dir=exportDir)
+        score = {
+            "cost_evaluate": float(p),
+            "quality_loss_evaluate": float(q)
+        }
+        json_name = os.path.join(exportDir, "base", "score.json")
+        with open(json_name, 'w') as json_file:
+            json.dump(score, json_file, indent=4)
 
         # Export all Pareto solutions to JSON
         pareto_export = []
-        for ind in pareto_list:
-            score = {
-                "cost": float(ind.fitness.values[0]),
-                "quality_loss": float(ind.fitness.values[1])
-            }
+        for num, ind in enumerate(pareto_list):
+            filename = "rank"+str(num)
+            p, q = a.hdcLoss(ind, dst_name=filename, data_dir=exportDir)
+            if len(ind.fitness.values) == 1:
+                score = {
+                    "quality_loss": float(ind.fitness.values[0]),
+                    "cost_evaluate": float(p),
+                    "quality_loss_evaluate": float(q)
+                }
+            else:
+                score = {
+                    "cost": float(ind.fitness.values[0]),
+                    "quality_loss": float(ind.fitness.values[1]),
+                    "cost_evaluate": float(p),
+                    "quality_loss_evaluate": float(q)
+                }
+            a.reset_theta(ind)
             # Build config dict matching config.json format (name -> value)
             config = {}
-            for i, eff_id in enumerate(a.effectTable.keys()):
+            for eff in a.effectTable:
                 # Each individual stores triples [value, frameRate, resolution]
-                config[eff_id] = float(ind[3*i])
+                for param in eff.drawOptional:
+                    config[param.name] = param.value
 
             pareto_export.append({
                 "score": score,
                 "config": config
             })
+            json_name = os.path.join(exportDir, filename, "score.json")
+            with open(json_name, 'w') as json_file:
+                json.dump(score, json_file, indent=4)
 
-        out_filename = 'pareto_solutions.json'
+        out_filename = os.path.join(exportDir, 'pareto_solutions.json')
         with open(out_filename, 'w') as jf:
             json.dump(pareto_export, jf, indent=4)
         print(f'Pareto solutions exported to {out_filename}')
 
-        
+if __name__ == "__main__":
+    task_now = 1
 
+    if task_now == 0:
+        # 1. 测试输出是否正确: 在 data 下生成对应的文件夹
+        app = PostProcess(path = "results/1212120007.pkl")
+        app.analyse_pkl()
+        app.export_pareto()
+
+    if task_now == 1:
+        # 2. 测试 multi 模式遗传算法
+        a = init_env(DEFAULT_EFFECTS, reboot=True)
+        myset = GASettings(COLONY_SIZE=40, ITERATIONS=150, CXPB=0.7, MUTPB=0.2, INDPB=0.1)
+        sol = SimpleGASolver(a)
+        sol.set_params(myset)
+        pf, pop = sol.run()
+        app2 = PostProcess()
+        app2.analyse_pkl(sol.genDict)
+        app2.export_pareto(pf=pf)
+
+    if task_now == 2:
+        # 3. 测试 single 模式遗传算法 (只看效果)
+        a = init_env(DEFAULT_EFFECTS)
+        myset = GASettings(COLONY_SIZE=2, ITERATIONS=2, CXPB=0.99, MUTPB=0.99, INDPB=0.99)
+        sol = SimpleGASolver(a, mode="single")
+        sol.set_params(myset)
+        pf, pop = sol.run()
+        app2 = PostProcess()
+        app2.analyse_pkl(sol.genDict)
+        app2.export_pareto(pf=pf)
+
+    if task_now == 3:
+        # 4. 测试 repair 功能是否有效
+        a = init_env(DEFAULT_EFFECTS)
+        a.repair_pareto_front("results/1204143044.pkl")
+
+    if task_now == 4:
+        loss = initial_param_test(DEFAULT_EFFECTS)
